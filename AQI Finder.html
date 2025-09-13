@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>AQI Finder</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Added Chart.js for forecast visualization -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    /* Custom styles for the new interface */
+    body {
+        /* Set font to Times New Roman */
+        font-family: 'Times New Roman', Times, serif;
+    }
+    /* Light theme for Leaflet popups */
+    .leaflet-popup-content-wrapper {
+        background-color: #ffffff; /* bg-white */
+        color: #1f2937; /* text-gray-800 */
+        border-radius: 8px;
+        box-shadow: 0 3px 14px rgba(0,0,0,0.2);
+    }
+    .leaflet-popup-tip {
+        background: #ffffff;
+    }
+    .leaflet-popup-content {
+        margin: 0;
+        line-height: 1.4;
+        width: 320px;
+    }
+    #controls {
+        max-height: 90vh;
+        overflow-y: auto;
+    }
+    /* Style for disabled button */
+    #downloadBtn:disabled {
+        background-color: #d1d5db; /* bg-gray-300 */
+        cursor: not-allowed;
+        color: #6b7280; /* text-gray-500 */
+    }
+    /* Feedback Stars */
+    .rating {
+        display: inline-block;
+        font-size: 30px;
+    }
+    .rating input { display: none; }
+    .rating label {
+        color: #ddd; /* text-gray-300 */
+        float: right;
+        cursor: pointer;
+    }
+    .rating input:checked ~ label,
+    .rating label:hover,
+    .rating label:hover ~ label {
+        color: #f59e0b; /* text-amber-500 */
+    }
+  </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+  <div id="map" class="w-full h-screen"></div>
+
+  <div id="controls" class="absolute top-4 left-4 z-[1000] bg-white border border-gray-300 rounded-lg shadow-lg max-w-sm w-full sm:w-auto overflow-hidden p-0">
+    <!-- Header -->
+    <div class="bg-gray-200 text-gray-800 p-4 border-b border-gray-300">
+        <div class="flex items-center space-x-3">
+            <!-- New USGS-style SVG Logo -->
+            <svg class="w-12 h-12" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="50" cy="50" r="45" fill="#ffffff" stroke="#374151" stroke-width="2"/>
+              <path d="M50 15L50 85" stroke="#3b82f6" stroke-width="4" stroke-linecap="round"/>
+              <path d="M15 50L85 50" stroke="#3b82f6" stroke-width="4" stroke-linecap="round"/>
+              <path d="M30 30L70 70" stroke="#9ca3af" stroke-width="2" stroke-linecap="round"/>
+              <path d="M30 70L70 30" stroke="#9ca3af" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <div>
+              <h2 class="text-xl font-bold text-gray-900">AQI Finder</h2>
+              <p class="text-xs text-gray-600">Developed by Sandip DasGupta</p>
+            </div>
+        </div>
+    </div>
+    <div class="space-y-4 p-4">
+        <div>
+            <p class="block text-sm font-medium text-gray-700 mb-2">Select Date</p>
+            <div class="grid grid-cols-3 gap-2">
+                <div>
+                    <label for="yearSelect" class="sr-only">Year</label>
+                    <select id="yearSelect" class="block w-full pl-3 pr-10 py-2 text-base bg-gray-50 text-gray-900 border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"></select>
+                </div>
+                 <div>
+                    <label for="monthSelect" class="sr-only">Month</label>
+                    <select id="monthSelect" class="block w-full pl-3 pr-10 py-2 text-base bg-gray-50 text-gray-900 border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md">
+                      <option value="1">Jan</option><option value="2">Feb</option><option value="3">Mar</option><option value="4">Apr</option><option value="5">May</option><option value="6">Jun</option><option value="7">Jul</option><option value="8">Aug</option><option value="9">Sep</option><option value="10">Oct</option><option value="11">Nov</option><option value="12">Dec</option>
+                    </select>
+                </div>
+                 <div>
+                    <label for="daySelect" class="sr-only">Day</label>
+                    <select id="daySelect" class="block w-full pl-3 pr-10 py-2 text-base bg-gray-50 text-gray-900 border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"></select>
+                </div>
+            </div>
+        </div>
+      <div class="border-t border-gray-200 pt-4">
+        <label for="fileInput" class="block text-sm font-medium text-gray-700">Upload Boundary File:</label>
+        <input type="file" id="fileInput" accept=".zip,.kml,.kmz" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/>
+        <p class="mt-1 text-xs text-gray-500">Accepts .zip (for SHP), .kml, .kmz</p>
+      </div>
+      <div class="border-t border-gray-200 pt-4">
+          <button id="downloadBtn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500" disabled>
+              Download AQI Data
+          </button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Info Modal -->
+  <div id="infoModal" class="hidden fixed inset-0 bg-black bg-opacity-50 overflow-y-auto h-full w-full z-[2000]">
+      <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+          <div class="mt-3 text-center">
+              <h3 class="text-lg leading-6 font-medium text-gray-900" id="modalTitle">Information</h3>
+              <div class="mt-2 px-7 py-3">
+                  <p class="text-sm text-gray-500" id="modalMessage"></p>
+              </div>
+              <div class="items-center px-4 py-3">
+                  <button id="closeModal" class="px-4 py-2 bg-blue-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                      Close
+                  </button>
+              </div>
+          </div>
+      </div>
+  </div>
+  
+  <!-- Feedback Modal -->
+  <div id="feedbackModal" class="hidden fixed inset-0 bg-black bg-opacity-50 overflow-y-auto h-full w-full z-[3000]">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+        <div class="mt-3 text-center">
+            <h3 class="text-lg leading-6 font-medium text-gray-900">Feedback</h3>
+            <div class="mt-2 px-7 py-3">
+                <p class="text-sm text-gray-600 mb-4">Thank you for using our portal. Please rate your experience and provide any feedback.</p>
+                <form id="feedbackForm">
+                    <div class="rating">
+                        <input type="radio" id="star5" name="rating" value="5" /><label for="star5">★</label>
+                        <input type="radio" id="star4" name="rating" value="4" /><label for="star4">★</label>
+                        <input type="radio" id="star3" name="rating" value="3" /><label for="star3">★</label>
+                        <input type="radio" id="star2" name="rating" value="2" /><label for="star2">★</label>
+                        <input type="radio" id="star1" name="rating" value="1" /><label for="star1">★</label>
+                    </div>
+                    <textarea id="feedbackText" class="mt-4 w-full h-24 p-2 border border-gray-300 rounded-md text-gray-900" placeholder="Your feedback..."></textarea>
+                </form>
+            </div>
+            <div class="items-center px-4 py-3">
+                <button id="submitFeedback" class="px-4 py-2 bg-blue-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    Submit
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Libraries for parsing shapefiles and KML -->
+  <script src="https://unpkg.com/shpjs@latest/dist/shp.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://unpkg.com/@mapbox/togeojson@0.16.0/togeojson.js"></script>
+  <script>
+    // --- Modal Handling ---
+    const infoModal = document.getElementById('infoModal');
+    const modalMessage = document.getElementById('modalMessage');
+    const closeModal = document.getElementById('closeModal');
+    const feedbackModal = document.getElementById('feedbackModal');
+    const submitFeedback = document.getElementById('submitFeedback');
+
+    function showModal(message, title = "Information") {
+        document.getElementById('modalTitle').textContent = title;
+        modalMessage.innerHTML = message;
+        infoModal.classList.remove('hidden');
+    }
+
+    closeModal.onclick = () => infoModal.classList.add('hidden');
+    submitFeedback.onclick = () => {
+        console.log('Feedback Submitted:', {
+            rating: document.querySelector('input[name="rating"]:checked')?.value || 'No rating',
+            text: document.getElementById('feedbackText').value
+        });
+        feedbackModal.classList.add('hidden');
+        showModal("Thank you for your feedback!");
+        document.getElementById('feedbackForm').reset();
+    };
+    
+    window.onclick = (event) => {
+        if (event.target == infoModal) infoModal.classList.add('hidden');
+        if (event.target == feedbackModal) feedbackModal.classList.add('hidden');
+    };
+
+    // --- Map Logic ---
+    const token = "05369f393ede3e2f35b97ef9c5c789e7ad69f086";
+    const map = L.map('map', { attributionControl: false }).setView([20.5937, 78.9629], 5);
+    // Light theme map tile layer
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+    }).addTo(map);
+
+    let uploadedLayer;
+
+    // --- Date Selectors ---
+    const yearSelect = document.getElementById("yearSelect");
+    const daySelect = document.getElementById("daySelect");
+    const currentYear = new Date().getFullYear();
+    for (let y = currentYear; y >= 2015; y--) yearSelect.add(new Option(y, y));
+    for (let d = 1; d <= 31; d++) daySelect.add(new Option(d, d));
+
+    // --- File Upload Handling ---
+    const fileInput = document.getElementById('fileInput');
+    const downloadBtn = document.getElementById('downloadBtn');
+    fileInput.addEventListener('change', handleFile);
+
+    function handleFile(e) {
+        downloadBtn.disabled = true;
+        const file = e.target.files[0];
+        if (!file) return;
+        if (uploadedLayer) map.removeLayer(uploadedLayer);
+        
+        const reader = new FileReader();
+        const fileName = file.name.toLowerCase();
+        
+        const onLayerLoaded = (geojson) => {
+            uploadedLayer = L.geoJSON(geojson, { style: { color: "#3b82f6", weight: 2, fillOpacity: 0.1 } }).addTo(map);
+            map.fitBounds(uploadedLayer.getBounds());
+            downloadBtn.disabled = false;
+        };
+
+        if (fileName.endsWith('.zip')) {
+            reader.onload = (e) => shp(e.target.result).then(onLayerLoaded).catch(err => showModal("Could not parse Shapefile."));
+            reader.readAsArrayBuffer(file);
+        } else if (fileName.endsWith('.kml')) {
+            reader.onload = (e) => {
+                try { onLayerLoaded(toGeoJSON.kml(new DOMParser().parseFromString(e.target.result, 'text/xml'))); } 
+                catch (err) { showModal("Could not parse KML file."); }
+            };
+            reader.readAsText(file);
+        } else if (fileName.endsWith('.kmz')) {
+            reader.onload = (e) => {
+                JSZip.loadAsync(e.target.result).then(zip => {
+                    const kmlFile = Object.keys(zip.files).find(name => name.toLowerCase().endsWith('.kml'));
+                    if (!kmlFile) throw new Error('No .kml file found in archive.');
+                    return zip.file(kmlFile).async('string');
+                }).then(kmlString => {
+                    onLayerLoaded(toGeoJSON.kml(new DOMParser().parseFromString(kmlString, 'text/xml')));
+                }).catch(err => showModal(err.message || "Could not parse KMZ file."));
+            };
+            reader.readAsArrayBuffer(file);
+        } else {
+            showModal('Unsupported file. Please upload .zip, .kml, or .kmz.');
+        }
+    }
+
+    // --- AQI Data Download ---
+    downloadBtn.addEventListener('click', async () => {
+        if (!uploadedLayer) return showModal("Please upload a boundary file first.");
+
+        downloadBtn.disabled = true;
+        downloadBtn.textContent = 'Fetching Data...';
+
+        const bounds = uploadedLayer.getBounds();
+        const url = `https://api.waqi.info/map/bounds/?latlng=${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}&token=${token}`;
+
+        try {
+            const res = await fetch(url);
+            const initialData = await res.json();
+
+            if (initialData.status !== "ok" || !initialData.data?.length) {
+                return showModal("No AQI stations found within the uploaded boundary.");
+            }
+            
+            showModal(`Found ${initialData.data.length} stations. Fetching detailed data...`, "Processing");
+
+            const detailPromises = initialData.data.map(st => fetch(`https://api.waqi.info/feed/@${st.uid}/?token=${token}`).then(res => res.json()));
+            const detailedResults = await Promise.all(detailPromises);
+            const stationDetails = detailedResults.filter(r => r.status === 'ok' && r.data).map(r => r.data);
+
+            if (!stationDetails.length) return showModal("Could not fetch detailed data for any station.");
+
+            const csvContent = convertToCSV(stationDetails);
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = "aqi_detailed_data.csv";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            setTimeout(() => document.getElementById('feedbackModal').classList.remove('hidden'), 500);
+
+        } catch (err) {
+            console.error("Download Error:", err);
+            showModal("Failed to download AQI data. A network error may have occurred.");
+        } finally {
+            downloadBtn.disabled = false;
+            downloadBtn.textContent = 'Download AQI Data';
+        }
+    });
+
+    function convertToCSV(data) {
+        const allPollutants = new Set();
+        data.forEach(st => st.iaqi && Object.keys(st.iaqi).forEach(key => allPollutants.add(key)));
+        const pollutantHeaders = Array.from(allPollutants).sort();
+
+        const headers = ["Latitude", "Longitude", "AQI", "Station_Name", "Station_ID", "Station_URL", "Timestamp_ISO", "Dominant_Pollutant", ...pollutantHeaders].join(',');
+        const rows = data.map(st => [
+            st.city.geo[0] || '', st.city.geo[1] || '', `"${st.aqi}"`, `"${(st.city.name || '').replace(/"/g, '""')}"`,
+            st.idx || '', st.city.url || '', st.time.iso || '', st.dominentpol || '',
+            ...pollutantHeaders.map(h => st.iaqi?.[h]?.v ?? '')
+        ].join(','));
+        return [headers, ...rows].join('\n');
+    }
+
+    // --- AQI Data & Popup Display ---
+    function displayAqiPopup(station, latlng) {
+        const hasForecast = station.forecast?.daily?.pm25;
+        let msg = `<div class="p-4 text-gray-800">
+            <h4 class="font-bold text-lg mb-2 text-gray-900">${station.city.name}</h4>
+            <div class="border-b border-gray-200 mb-2">
+                <nav class="-mb-px flex space-x-4">
+                    <button id="tab-current" class="whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm border-blue-600 text-blue-700">Current</button>
+                    ${hasForecast ? `<button id="tab-forecast" class="whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">Forecast</button>` : ''}
+                </nav>
+            </div>
+            <div id="panel-current">
+                <p><b>AQI:</b> <span class="font-semibold text-blue-700">${station.aqi}</span> (Dominant: ${station.dominentpol.toUpperCase()})</p>
+                ${station.iaqi ? `<div class="mt-2 pt-2 border-t border-gray-200"><b>Pollutants:</b><ul class="list-disc list-inside mt-1 text-sm">${Object.entries(station.iaqi).map(([key, val]) => `<li><span class="font-semibold">${key.toUpperCase()}</span>: ${val.v}</li>`).join('')}</ul></div>` : ''}
+            </div>
+            ${hasForecast ? `<div id="panel-forecast" class="hidden"><canvas id="forecastChart" width="280" height="200"></canvas></div>` : ''}
+        </div>`;
+
+        L.popup().setLatLng(latlng).setContent(msg).openOn(map);
+        if (hasForecast) setTimeout(() => initializeTabsAndChart(station), 100);
+    }
+
+    function initializeTabsAndChart(station) {
+        const tabCurrent = document.getElementById('tab-current'), tabForecast = document.getElementById('tab-forecast');
+        const panelCurrent = document.getElementById('panel-current'), panelForecast = document.getElementById('panel-forecast');
+        if (!tabCurrent || !tabForecast) return;
+
+        const setActive = (activeTab, inactiveTab) => {
+            activeTab.className = 'whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm border-blue-600 text-blue-700';
+            inactiveTab.className = 'whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300';
+        };
+
+        tabCurrent.onclick = () => { setActive(tabCurrent, tabForecast); panelCurrent.classList.remove('hidden'); panelForecast.classList.add('hidden'); };
+        tabForecast.onclick = () => { setActive(tabForecast, tabCurrent); panelForecast.classList.remove('hidden'); panelCurrent.classList.add('hidden'); };
+
+        const forecastData = station.forecast.daily.pm25;
+        const ctx = document.getElementById('forecastChart').getContext('2d');
+        const textColor = '#1f2937', gridColor = 'rgba(209, 213, 219, 0.5)';
+        
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: forecastData.map(d => new Date(d.day).toLocaleDateString('en-US', { weekday: 'short' })),
+                datasets: [{ label: 'Avg PM2.5', data: forecastData.map(d => d.avg), borderColor: '#2563eb', backgroundColor: 'rgba(37, 99, 235, 0.5)', tension: 0.1 },
+                           { label: 'Max PM2.5', data: forecastData.map(d => d.max), borderColor: '#dc2626', backgroundColor: 'rgba(220, 38, 38, 0.5)', tension: 0.1 }]
+            },
+            options: {
+                responsive: true,
+                plugins: { title: { display: true, text: '7-Day PM2.5 Forecast', color: textColor }, legend: { labels: { color: textColor } } },
+                scales: { x: { ticks: { color: textColor }, grid: { color: gridColor } }, y: { ticks: { color: textColor }, grid: { color: gridColor } } }
+            }
+        });
+    }
+    
+    async function fetchAqiByGeo(lat, lon) {
+        const url = `https://api.waqi.info/feed/geo:${lat};${lon}/?token=${token}`;
+        try {
+            const res = await fetch(url);
+            const data = await res.json();
+            if (data.status !== "ok" || !data.data?.city) {
+              return L.popup().setLatLng([lat, lon]).setContent("No station data found at this location.").openOn(map);
+            }
+            displayAqiPopup(data.data, [lat, lon]);
+        } catch (err) {
+            console.error("Fetch Error:", err);
+            showModal("Could not fetch station details. Please try again.");
+        }
+    }
+
+    map.on("click", (e) => fetchAqiByGeo(e.latlng.lat, e.latlng.lng));
+    window.onload = () => showModal("<b>API Note:</b> This tool provides real-time AQI data and forecasts. Date selectors are for interface demonstration only as the free API does not support historical queries.");
+  </script>
+</body>
+</html>
+
